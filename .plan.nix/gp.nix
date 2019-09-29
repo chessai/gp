@@ -58,10 +58,13 @@ in { system, compiler, flags, pkgs, hsPkgs, pkgconfPkgs, ... }:
         "gp" = {
           depends = [
             (hsPkgs."base" or (buildDepError "base"))
+            (hsPkgs."containers" or (buildDepError "containers"))
             (hsPkgs."dhall" or (buildDepError "dhall"))
             (hsPkgs."directory" or (buildDepError "directory"))
             (hsPkgs."ip" or (buildDepError "ip"))
+            (hsPkgs."optparse-applicative" or (buildDepError "optparse-applicative"))
             (hsPkgs."process" or (buildDepError "process"))
+            (hsPkgs."unix" or (buildDepError "unix"))
             ];
           };
         };
