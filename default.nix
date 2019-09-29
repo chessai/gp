@@ -9,7 +9,6 @@ let
     modules = [];
   };
 
-in rec {
   hsPkgs = pkgSet.config.hsPkgs;
-  gp = hsPkgs.gp.components.exes.gp;
-}
+
+in hsPkgs.gp.components.exes.gp
