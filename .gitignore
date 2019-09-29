@@ -51,3 +51,7 @@ TAGS
 
 # other
 .DS_Store
+
+# nix
+result
+result-*
