@@ -12,20 +12,23 @@
 
 module Main (main) where
 
-import Dhall
-
-import GHC.Generics (Generic)
---import Net.IPv4 (IPv4)
+import Control.Concurrent (forkIO, killThread)
+import Control.Concurrent.MVar
+import Control.DeepSeq (rnf)
+import Control.Monad (void)
 import Data.Map (Map)
 import Data.Monoid (Alt(..))
-import qualified Data.String as Str
+import Dhall
+import GHC.Generics (Generic)
+import qualified Control.Exception as E
+import qualified Data.List as L
 import qualified Data.Map as Map
---import qualified Net.IPv4 as IPv4
+import qualified Data.String as Str
+import qualified Options.Applicative as O
 import qualified System.Directory as Dir
 import qualified System.Environment as Env
 import qualified System.Exit as Exit
 import qualified System.IO as IO
-import qualified Options.Applicative as O
 import qualified System.Posix.Process as P
 
 -- example: sudo GP_CONF="/path/to/gp/config" su -p -c 'gp --help'
@@ -74,7 +77,55 @@ runGp Gp{..} = do
         Nothing -> []
         Just s -> ["--servercert=" <> s]
 
+  void $ forkIO $ case (username,password) of
+    (Just u, Just p) -> fillCreds u p
+    _ -> pure ()
+
   P.executeFile "openconnect" True args Nothing
+
+fillUsername :: String -> IO ()
+fillUsername username = do
+  output <- IO.hGetContents IO.stdout
+  withForkWait (E.evaluate $ rnf output) $ \waitOut -> do
+    if "Username: " `isSuffixOf` output
+      then IO.hPutStr IO.stdin (username ++ "\n")
+      else do
+        waitOut
+        fillUsername username
+
+fillPassword :: String -> IO ()
+fillPassword password = do
+  output <- IO.hGetContents IO.stdout
+  -- do not show password
+  oldEchoSetting <- IO.hGetEcho IO.stdin
+  let newEchoSetting = False
+  withForkWait (E.evaluate $ rnf output) $ \waitOut -> do
+    if "Password: " `isSuffixOf` output
+      then do
+        E.bracket_
+          (IO.hSetEcho IO.stdin newEchoSetting)
+          (IO.hSetEcho IO.stdin oldEchoSetting)
+          (IO.hPutStr IO.stdin (password ++ "\n"))
+      else do
+        waitOut
+        fillPassword password
+
+fillCreds :: String -> String -> IO ()
+fillCreds username password = do
+  IO.hSetBuffering IO.stdin IO.NoBuffering
+  fillUsername username
+  fillPassword password
+
+isSuffixOf :: Eq a => [a] -> [a] -> Bool
+x `isSuffixOf` xs = L.isPrefixOf (reverse x) (reverse xs)
+
+withForkWait :: IO () -> (IO () -> IO a) -> IO a
+withForkWait async body = do
+  waitVar <- newEmptyMVar @(Either E.SomeException ())
+  E.mask $ \restore -> do
+    tid <- forkIO $ E.try (restore async) >>= putMVar waitVar
+    let wait = takeMVar waitVar >>= either E.throwIO pure
+    restore (body wait) `E.onException` killThread tid
 
 data GpError
   = GpConfEnvNotFound
@@ -145,6 +196,10 @@ data Gp = Gp
   --  -- ^ dns name of host
   , servercert :: Maybe String
     -- ^ sometimes servers want a cert (usually identified by a hash)
+  , username :: Maybe String
+    -- ^ username
+  , password :: Maybe String
+    -- ^ password
   }
   deriving stock (Eq, Show)
   deriving stock (Generic)
